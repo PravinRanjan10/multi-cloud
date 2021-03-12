@@ -46,6 +46,15 @@ type AzureAdapter struct {
 	containerURL azblob.ContainerURL
 }
 
+
+func (ad *AzureAdapter) BucketDelete(ctx context.Context, in *pb.Bucket) error {
+	return nil
+}
+
+func (ad *AzureAdapter) BucketCreate(ctx context.Context, input *pb.Bucket) error {
+	return nil
+}
+
 /*func Init(backend *backendpb.BackendDetail) *AzureAdapter {
 	endpoint := backend.Endpoint
 	AccessKeyID := backend.Access
