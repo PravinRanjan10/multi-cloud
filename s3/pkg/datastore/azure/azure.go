@@ -189,7 +189,6 @@ func (ad *AzureAdapter) Put(ctx context.Context, stream io.Reader, object *pb.Ob
 func (ad *AzureAdapter) Get(ctx context.Context, object *pb.Object, start int64, end int64) (io.ReadCloser, error) {
 	bucket := object.BucketName
 	log.Infof("get object[Azure Blob], bucket:%s, objectId:%s\n", bucket, object.ObjectId)
-
 	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, object.BucketName)
 	blobURL := containerURL.NewBlobURL(object.ObjectId)
 
@@ -209,7 +208,6 @@ func (ad *AzureAdapter) Delete(ctx context.Context, input *pb.DeleteObjectInput)
 	bucket := input.Bucket
 	objectId := input.Key
 	log.Infof("delete object[Azure Blob], objectId:%s, bucket:%s\n", objectId, bucket)
-
 	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, input.Bucket)
 	blobURL := containerURL.NewBlockBlobURL(objectId)
 	log.Infof("blobURL is %v\n", blobURL)
