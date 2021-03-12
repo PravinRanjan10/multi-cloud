@@ -95,14 +95,14 @@ func (s *s3Service) CreateBucket(ctx context.Context, in *pb.Bucket, out *pb.Bas
 		log.Errorln("failed to create bucket in s3 service:", err)
 		return err
 	}
-	log.Debug("bucket created successfully in s3 service")
+	log.Debug("Bucket created successfully in s3 service")
 
 	processed, err := s.MetaStorage.Db.CheckAndPutBucket(ctx, &Bucket{Bucket: in})
 	if err != nil {
 		log.Error("Error making checkandput: ", err)
 		return nil
 	}
-	log.Infof("create bucket[%s] in database succeed, processed=%v.\n", in.Name, processed)
+	log.Infof("Create bucket[%s] in database succeed, processed=%v.\n", in.Name, processed)
 	if !processed { // bucket already exists, return accurate message
 		/*bucket*/ _, err := s.MetaStorage.GetBucket(ctx, bucketName, false)
 		if err == nil {
@@ -247,7 +247,7 @@ func (s *s3Service) DeleteBucket(ctx context.Context, in *pb.Bucket, out *pb.Bas
 		return err
 	}
 
-	log.Info("the driver for the backend is:\n", sd)
+	log.Info("The driver for the backend is:\n", sd)
 
 	err = sd.BucketDelete(ctx, in)
 	log.Error("The error while deleting bucket:", err)
@@ -262,7 +262,7 @@ func (s *s3Service) DeleteBucket(ctx context.Context, in *pb.Bucket, out *pb.Bas
 		return nil
 	}
 
-	log.Infof("delete bucket[%s] successfully\n", bucketName)
+	log.Infof("Delete bucket[%s] successfully\n", bucketName)
 	return nil
 }
 
