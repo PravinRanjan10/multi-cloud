@@ -247,7 +247,7 @@ func (ad *AwsAdapter) BucketDelete(ctx context.Context, in *pb.Bucket) error {
 		}
 		return err
 	}
-	log.Info(result)
+	log.Debug(result)
 
 	return nil
 }

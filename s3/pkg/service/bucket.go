@@ -239,7 +239,7 @@ func (s *s3Service) DeleteBucket(ctx context.Context, in *pb.Bucket, out *pb.Bas
 		return err
 	}
 
-	log.Info("the backend is:\n", backend)
+	log.Info("The backend is:\n", backend)
 
 	sd, err := driver.CreateStorageDriver(backend.Type, backend)
 	if err != nil {
@@ -250,7 +250,6 @@ func (s *s3Service) DeleteBucket(ctx context.Context, in *pb.Bucket, out *pb.Bas
 	log.Info("The driver for the backend is:\n", sd)
 
 	err = sd.BucketDelete(ctx, in)
-	log.Error("The error while deleting bucket:", err)
 	if err != nil {
 		log.Errorln("failed to delete bucket in s3 service:", err)
 		return err
