@@ -46,12 +46,56 @@ type AzureAdapter struct {
 	containerURL azblob.ContainerURL
 }
 
-func (ad *AzureAdapter) BucketDelete(ctx context.Context, in *pb.Bucket) error {
+func (ad *AzureAdapter) BackendCheck(ctx context.Context, backendDetail *pb.BackendDetailS3) error {
 	panic("implement me")
 }
 
-func (ad *AzureAdapter) BucketCreate(ctx context.Context, input *pb.Bucket) error {
+func (ad *AzureAdapter) Restore(ctx context.Context, restoreObj *pb.Restore) error {
 	panic("implement me")
+}
+
+func (ad *AzureAdapter) BucketDelete(ctx context.Context, input *pb.Bucket) error {
+
+	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, input.Name)
+
+	_, err := containerURL.Delete(ctx, azblob.ContainerAccessConditions{})
+	if err != nil {
+		log.Error("failed to delete bucket:",err)
+		return err
+	}
+	log.Infof("Successful bucket deletion")
+	return nil
+}
+
+func (ad *AzureAdapter) BucketCreate(ctx context.Context, input *pb.Bucket) error {
+
+	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, input.Name)
+
+	// Create the container on the service (with no metadata and no public access)
+	_, err := containerURL.Create(ctx, azblob.Metadata{}, azblob.PublicAccessNone)
+	if err != nil {
+		log.Error("failed to create bucket:", err)
+		return err
+	}
+	log.Infof("Successful bucket creation")
+	return nil
+
+}
+
+//creates containerURL with bucketname
+func (ad *AzureAdapter) createBucketContainerURL(accountName string, accountKey string, bucketName string) (azblob.ContainerURL, error) {
+	credential, err := azblob.NewSharedKeyCredential(accountName, accountKey)
+	if err != nil {
+		log.Error("create credential[Azure Blob] failed, err:%v\n", err)
+		return azblob.ContainerURL{}, err
+	}
+
+	pipeline := azblob.NewPipeline(credential, azblob.PipelineOptions{})
+	u, _ := url.Parse("https://" + accountName + ".blob.core.windows.net")
+	serviceURL := azblob.NewServiceURL(*u, pipeline)
+	containerURL := serviceURL.NewContainerURL(bucketName) // Container names require lowercase
+	return containerURL, nil
+
 }
 
 /*func Init(backend *backendpb.BackendDetail) *AzureAdapter {
@@ -74,7 +118,7 @@ func (ad *AzureAdapter) createContainerURL(endpoint string, acountName string, a
 	credential, err := azblob.NewSharedKeyCredential(acountName, accountKey)
 
 	if err != nil {
-		log.Infof("create credential[Azure Blob] failed, err:%v\n", err)
+		log.Errorf("create credential[Azure Blob] failed, err:%v\n", err)
 		return azblob.ContainerURL{}, err
 	}
 
@@ -90,12 +134,12 @@ func (ad *AzureAdapter) createContainerURL(endpoint string, acountName string, a
 }
 
 func (ad *AzureAdapter) Put(ctx context.Context, stream io.Reader, object *pb.Object) (dscommon.PutResult, error) {
-	objectId := object.BucketName + "/" + object.ObjectKey
-	blobURL := ad.containerURL.NewBlockBlobURL(objectId)
+	objectId := object.ObjectKey
+	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, object.BucketName)
+	blobURL := containerURL.NewBlockBlobURL(objectId)
 	result := dscommon.PutResult{}
 	userMd5 := dscommon.GetMd5FromCtx(ctx)
-	storageClass := dscommon.GetStorClassFromCtx(ctx)
-	log.Infof("Put object[Azure Blob], objectId:%s, blobURL:%v, userMd5:%s, size:%d storageClass=%s", objectId, blobURL, userMd5, object.Size, storageClass)
+	log.Infof("put object[Azure Blob], objectId:%s, blobURL:%v, userMd5:%s, size:%d\n", objectId, blobURL, userMd5, object.Size)
 
 	log.Infof("put object[Azure Blob] begin, objectId:%s\n", objectId)
 	options := azblob.UploadStreamToBlockBlobOptions{BufferSize: 2 * 1024 * 1024, MaxBuffers: 2}
@@ -111,20 +155,14 @@ func (ad *AzureAdapter) Put(ctx context.Context, stream io.Reader, object *pb.Ob
 		return result, ErrPutToBackendFailed
 	}
 
-	var storClass string
-
-	if storageClass != "" {
-		storClass = storageClass
-	} else {
-		if object.Tier == 0 {
-			// default
-			object.Tier = utils.Tier1
-		}
-		storClass, err = osdss3.GetNameFromTier(object.Tier, utils.OSTYPE_Azure)
-		if err != nil {
-			log.Errorf("translate tier[%d] to azure storage class failed", object.Tier)
-			return result, ErrInternalError
-		}
+	if object.Tier == 0 {
+		// default
+		object.Tier = utils.Tier1
+	}
+	storClass, err := osdss3.GetNameFromTier(object.Tier, utils.OSTYPE_Azure)
+	if err != nil {
+		log.Infof("translate tier[%d] to aws storage class failed\n", object.Tier)
+		return result, ErrInternalError
 	}
 
 	resultMd5 := uploadResp.Response().Header.Get("Content-MD5")
@@ -157,10 +195,10 @@ func (ad *AzureAdapter) Put(ctx context.Context, stream io.Reader, object *pb.Ob
 }
 
 func (ad *AzureAdapter) Get(ctx context.Context, object *pb.Object, start int64, end int64) (io.ReadCloser, error) {
-	bucket := ad.backend.BucketName
+	bucket := object.BucketName
 	log.Infof("get object[Azure Blob], bucket:%s, objectId:%s\n", bucket, object.ObjectId)
-
-	blobURL := ad.containerURL.NewBlobURL(object.ObjectId)
+	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, object.BucketName)
+	blobURL := containerURL.NewBlobURL(object.ObjectId)
 
 	count := end - start + 1
 	log.Infof("blobURL:%v, size:%d, start=%d, end=%d, count=%d\n", blobURL, object.Size, start, end, count)
@@ -175,11 +213,11 @@ func (ad *AzureAdapter) Get(ctx context.Context, object *pb.Object, start int64,
 }
 
 func (ad *AzureAdapter) Delete(ctx context.Context, input *pb.DeleteObjectInput) error {
-	bucket := ad.backend.BucketName
-	objectId := input.Bucket + "/" + input.Key
+	bucket := input.Bucket
+	objectId := input.Key
 	log.Infof("delete object[Azure Blob], objectId:%s, bucket:%s\n", objectId, bucket)
-
-	blobURL := ad.containerURL.NewBlockBlobURL(objectId)
+	containerURL, _ := ad.createBucketContainerURL(ad.backend.Access, ad.backend.Security, input.Bucket)
+	blobURL := containerURL.NewBlockBlobURL(objectId)
 	log.Infof("blobURL is %v\n", blobURL)
 	delRsp, err := blobURL.Delete(ctx, azblob.DeleteSnapshotsOptionInclude, azblob.BlobAccessConditions{})
 	if err != nil {
@@ -212,7 +250,7 @@ func (ad *AzureAdapter) Copy(ctx context.Context, stream io.Reader, target *pb.O
 func (ad *AzureAdapter) ChangeStorageClass(ctx context.Context, object *pb.Object, newClass *string) error {
 	objectId := object.ObjectId
 	blobURL := ad.containerURL.NewBlockBlobURL(objectId)
-	log.Infof("Change storage class[Azure Blob], objectId:%s, storageClass:%s blobURL is %v\n", objectId, *newClass, blobURL)
+	log.Infof("change storage class[Azure Blob], objectId:%s, blobURL is %v\n", objectId, blobURL)
 
 	var res *azblob.BlobSetTierResponse
 	var err error
@@ -233,8 +271,8 @@ func (ad *AzureAdapter) ChangeStorageClass(ctx context.Context, object *pb.Objec
 			newClass, err)
 		return ErrInternalError
 	} else {
-		log.Infof("Change storage class[Azure Blob] of object[%s] to %s succeed, res:%v\n", object.ObjectKey,
-			*newClass, res.Response())
+		log.Errorf("change storage class[Azure Blob] of object[%s] to %s succeed, res:%v\n", object.ObjectKey,
+			newClass, res.Response())
 	}
 
 	return nil
@@ -344,54 +382,6 @@ func (ad *AzureAdapter) AbortMultipartUpload(ctx context.Context, multipartUploa
 
 func (ad *AzureAdapter) ListParts(ctx context.Context, multipartUpload *pb.ListParts) (*model.ListPartsOutput, error) {
 	return nil, ErrNotImplemented
-}
-
-func (ad *AzureAdapter) BackendCheck(ctx context.Context, backendDetail *pb.BackendDetailS3) error {
-
-	object := &pb.Object{
-		BucketName: backendDetail.BucketName,
-		ObjectKey:  "emptyContainer/",
-	}
-
-	bs := []byte{0}
-	stream := bytes.NewReader(bs)
-
-	_, err := ad.Put(ctx, stream, object)
-
-	if err != nil {
-		log.Debug("failed to put object[Azure Blob]:", err)
-		return err
-	}
-
-	input := &pb.DeleteObjectInput{
-		Bucket: backendDetail.BucketName,
-		Key:    "EmptyContainer/",
-	}
-
-	err = ad.Delete(ctx, input)
-	if err != nil {
-		log.Debug("failed to delete object[Azure Blob],\n", err)
-		return err
-	}
-	log.Debug("create and delete object is successful\n")
-	return nil
-}
-
-func (ad *AzureAdapter) Restore(ctx context.Context, inp *pb.Restore) error {
-	className := inp.StorageClass
-	log.Infof("Restore the object to storage class [%s]", className)
-	objId := inp.BucketName + "/" + inp.ObjectKey
-	obj := &pb.Object{
-		ObjectId:   objId,
-		ObjectKey:  inp.ObjectKey,
-		BucketName: inp.BucketName,
-	}
-	err := ad.ChangeStorageClass(ctx, obj, &className)
-	if err != nil {
-		log.Error("error [%v] in changing the storage class of the object [%s]", err, inp.ObjectKey)
-		return err
-	}
-	return nil
 }
 
 func (ad *AzureAdapter) Close() error {
