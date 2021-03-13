@@ -42,10 +42,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	DefaultRegion = "us-east-1"
-)
-
 type AwsAdapter struct {
 	backend *backendpb.BackendDetail
 	session *session.Session
@@ -67,15 +63,8 @@ func (myc *s3Cred) IsExpired() bool {
 
 func (ad *AwsAdapter) BucketCreate(ctx context.Context, in *pb.Bucket) error {
 
-	log.Info("Bucket create is called in aws service")
-	log.Info("The input request to create bucket is:", in)
-	Credentials := credentials.NewStaticCredentials(ad.backend.Access, ad.backend.Security, "")
-	configuration := &aws.Config{
-		Region:      aws.String(DefaultRegion),
-		Endpoint:    aws.String(ad.backend.Endpoint),
-		Credentials: Credentials,
-	}
-	svc := awss3.New(session.New(configuration))
+	log.Info("Bucket create is called in aws service and input request is:", in)
+	svc := awss3.New(ad.session)
 
 	input := &awss3.CreateBucketInput{
 		Bucket: aws.String(in.Name),
@@ -83,24 +72,10 @@ func (ad *AwsAdapter) BucketCreate(ctx context.Context, in *pb.Bucket) error {
 
 	buckout, err := svc.CreateBucket(input)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case awss3.ErrCodeBucketAlreadyExists:
-				log.Error(awss3.ErrCodeBucketAlreadyExists, aerr.Error())
-			case awss3.ErrCodeBucketAlreadyOwnedByYou:
-				log.Error(awss3.ErrCodeBucketAlreadyOwnedByYou, aerr.Error())
-			default:
-				log.Error(aerr.Error())
-			}
-		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			log.Error(err.Error())
-		}
+		log.Error("the create bucket failed in aws-s3 service with err:%s", err.Error())
 		return err
 	}
-	log.Debug("The bucket creation successful in aws s3 service")
-	log.Info("The result of create bucket:", buckout)
+	log.Debug("The bucket creation successful in aws-s3 service with output:%s", buckout)
 
 	return nil
 }
@@ -141,14 +116,8 @@ func (ad *AwsAdapter) Put(ctx context.Context, stream io.Reader, object *pb.Obje
 			return result, ErrInternalError
 		}
 	}
-	// get the crentials object based on user AK/SK
-	Credentials := credentials.NewStaticCredentials(ad.backend.Access, ad.backend.Security, "")
-	sess, err := session.NewSession(&aws.Config{
-		Region:      aws.String(DefaultRegion),
-		Credentials: Credentials,
-	},
-	)
-	uploader := s3manager.NewUploader(sess)
+
+	uploader := s3manager.NewUploader(ad.session)
 
 	input := &s3manager.UploadInput{
 		Body:         dataReader,
@@ -221,30 +190,14 @@ func (ad *AwsAdapter) Get(ctx context.Context, object *pb.Object, start int64, e
 
 func (ad *AwsAdapter) BucketDelete(ctx context.Context, in *pb.Bucket) error {
 	log.Info("Bucket delete is called in aws s3 service")
-	Credentials := credentials.NewStaticCredentials(ad.backend.Access, ad.backend.Security, "")
-	configuration := &aws.Config{
-		Region:      aws.String(DefaultRegion),
-		Endpoint:    aws.String(ad.backend.Endpoint),
-		Credentials: Credentials,
-	}
-
-	svc := awss3.New(session.New(configuration))
+	svc := awss3.New(ad.session)
 	input := &awss3.DeleteBucketInput{
 		Bucket: aws.String(in.Name),
 	}
 
 	result, err := svc.DeleteBucketWithContext(ctx, input)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			default:
-				log.Error(aerr.Error())
-			}
-		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			log.Error(err.Error())
-		}
+		log.Error(err.Error())
 		return err
 	}
 	log.Debug(result)
@@ -261,13 +214,7 @@ func (ad *AwsAdapter) Delete(ctx context.Context, input *pb.DeleteObjectInput) e
 
 	log.Infof("delete object[AWS S3], objectId:%s.\n", objectId)
 
-	Credentials := credentials.NewStaticCredentials(ad.backend.Access, ad.backend.Security, "")
-	configuration := &aws.Config{
-		Region:      aws.String(DefaultRegion),
-		Endpoint:    aws.String(ad.backend.Endpoint),
-		Credentials: Credentials,
-	}
-	svc := awss3.New(session.New(configuration))
+	svc := awss3.New(ad.session)
 	_, err := svc.DeleteObject(&deleteInput)
 	if err != nil {
 		log.Errorf("delete object[AWS S3] failed, objectId:%s, err:%v.\n", objectId, err)
